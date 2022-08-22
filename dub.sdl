@@ -1,0 +1,6 @@
+name "dclone"
+description "Simple module to copy objects"
+authors "Paolo De Donato"
+copyright "Copyright © 2022, Paolo De Donato"
+license "MIT"
+targetType "library"
