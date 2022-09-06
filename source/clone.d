@@ -3,185 +3,99 @@ module clone;
 import std.traits;
 import std.typecons;
 
-bool hasCloneMethod(T)() pure @safe nothrow @nogc{
-    static if(is(T == class) || is(T == struct)){
-        return hasMember!(T, "clone") && hasMember!(T, "iclone");
-    }
-    else return false;
-}
+alias MutableType(T) = typeof(lvalueOf!T.clone());
 
-bool hasCloneFun(T)() pure @trusted nothrow @nogc{
-    T val = void;
-    return __traits(compiles, clone(val)) && __traits(compiles, iclone(val));
-}
-
-bool isCloneable(T)() pure @safe nothrow @nogc{
-    static if(isBasicType!T){
-        return true;
-    }
-    else static if(hasCloneFun!T){
-        return true;
-    }
-    else static if(is(T == W[N], W, size_t N)){
-        return isCloneable!(Unconst!W);
-    }
-    else static if(is(T == W[], W)){
-        return isCloneable!(Unconst!W);
-    }
-    else static if(is(T == W*, W)){
-        return isCloneable!(Unconst!W);
-    }
-    else static if(is(T == class)){
-        return hasCloneMethod!T;
-    }
-    else static if(is(T == struct)){
-        return true;
-    }
-    else return false;
-}
-
-auto cloneObj(T)(in T el) pure @trusted{
-    alias Traw = Unconst!T;
-    static assert(isCloneable!Traw, "This type is not cloneable");
-    static if(isBasicType!T){
-        return cast(Traw) el;
-    }
-    else static if(hasCloneFun!T){
-        return clone(el);
-    }
-    else static if(is(T == W[N], W, size_t N)){
-        Unconst!W[N] ret;
-        foreach(size_t i, ref v; el)
-            ret[i] = cloneObj(v);
-        return ret;
-    }
-    else static if(is(T == W[], W)){
-        if(el.length == 0){
-            Unconst!W[] ret;
-            return ret;
-        }
-        else{
-            Unconst!W[] ret = new Unconst!W[](el.length);
-            foreach(size_t i, ref v; el)
-                ret[i] = cloneObj(v);
-            return ret;
-        }
-    }
-    else static if(is(T == W*, W)){
-        Unconst!W[] may = new Unconst!W[](1);
-        may[0] = cloneObj(*el);
-        return &(may[0]);
-    }
-    else static if(is(T == class)){
-        if(el is null)
-            return cast(Traw) null;
-        else
-            return el.clone;
-    }
-    else static if(is(T == struct)){
-        static if(hasCloneMethod!Traw){
-            return el.clone;
-        }
-        else{
-            Traw ret;
-            static foreach(string mem; FieldNameTuple!Traw){
-                mixin("ret." ~ mem) = cloneObj(mixin("el." ~ mem));
-            }
-            return ret;
-        }
-    }
-}
-
-auto icloneObj(T)(in T el) pure @trusted{
-    alias Traw = Unconst!T;
-    static assert(isCloneable!Traw, "This type is not cloneable");
-    static if(isBasicType!T){
-        return cast(immutableOf!Traw) el;
-    }
-    else static if(hasCloneFun!T){
-        return iclone(el);
-    }
-    else static if(is(T == W[N], W, size_t N)){
-        Unconst!W[N] ret;
-        foreach(size_t i, ref v; el)
-            ret[i] = cloneObj(v);
-        return cast(ImmutableOf!(Unconst!W)[N])ret;
-    }
-    else static if(is(T == W[], W)){
-        if(el.length == 0){
-            ImmutableOf!(Unconst!W)[] ret;
-            return ret;
-        }
-        else{
-            Unconst!W[] ret = new Unconst!W[](el.length);
-            foreach(size_t i, ref v; el)
-                ret[i] = cloneObj(v);
-            return cast(ImmutableOf!(Unconst!W)[])ret;
-        }
-    }
-    else static if(is(T == W*, W)){
-        Unconst!W[] may = new Unconst!W[](1);
-        may[0] = cloneObj(*el);
-        return cast(ImmutableOf!(Unconst!W) *) &(may[0]);
-    }
-    else static if(is(T == class)){
-        if(el is null)
-            return cast(immutable Traw) null;
-        else
-            return el.iclone;
-    }
-    else static if(is(T == struct)){
-        static if(hasCloneMethod!Traw){
-            return el.iclone;
-        }
-        else{
-            Traw ret;
-            static foreach(size_t i, ref e; ret.tupleof){
-                e = cloneObj(el.tupleof[i]);
-            }
-            return cast(ImmutableOf!Traw) ret;
-        }
-    }
+Unconst!T clone(T)(in T el) pure @safe nothrow @nogc if(isBasicType!T){
+    return el;
 }
 
 /*
-    some useful cloning functions
+    Equivalent to clone unless T is a class and el is null. In that case returns null
 */
-
-Nullable!T clone(T)(in Nullable!T n) pure @safe nothrow @nogc{
-    if(n.isNull){
-        return Nullable!T();
+MutableType!T cloneNull(T)(in T el) pure @safe{
+    static if(is(T == class)){
+        if(el is null)
+            return null;
+        else
+            return el.clone();
     }
-    else{
-        static if(is(T == immutable)){
-            return Nullable!T(icloneObj(n.get));
-        }
-        else{
-            return Nullable!T(cloneObj(n.get));
-        }
-    }
+    else return el.clone();
 }
-immutable(Nullable!T) clone(T)(in Nullable!T n) pure @safe nothrow @nogc{
+
+Unconst!T clone(T)(in T el) pure @safe if( is(T == struct) && __traits(isPOD, T) ){
+    Unconst!T ret;
+    static foreach(mem; FieldNameTuple!T){
+        mixin("ret." ~ mem ~ "=el." ~ mem ~ ".cloneNull();");
+    }
+    return ret;
+}
+
+MutableType!T[] clone(T)(scope T[] el) pure @safe{
+    auto ret = new MutableType!T[](el.length);
+    foreach(i, ref v; el){
+        ret[i] = v.clone();
+    }
+    return ret;
+}
+MutableType!T[N] clone(T, size_t N)(in T[N] el) pure @safe{
+    MutableType!T[N] ret;
+    foreach(i, ref v; el){
+        ret[i] = v.clone();
+    }
+    return ret;
+}
+
+MutableType!T *clone(T)(scope T * el) pure @safe{
+    if(el is null)
+        return null;
+    auto ret = new MutableType!T[](1);
+    ret[0] = (*el).clone();
+    return &ret[0];
+}
+
+Nullable!(MutableType!T) clone(T)(in Nullable!T n) pure @safe nothrow @nogc{
+    alias Tret = Nullable!(MutableType!T);
     if(n.isNull){
-        return immutable Nullable!T();
+        return Tret();
     }
     else{
-        return immutable Nullable!T(icloneObj(n.get));
+        return Tret(n.get.clone());
     }
 }
 
 unittest{
-    struct A{
-        int[] a = null;
+    class B{
+        public:
+        char c;
+        this() pure @safe{
+            c = 'A';
+        }
+
+        B clone() const pure @safe{
+            auto ret = new B();
+            ret.c = c;
+            return ret;
+        }
     }
 
-    static assert(isCloneable!A, "Trait test failed");
+    struct A{
+        int[] a = null;
+        int *b = null;
+        B c = null;
+    }
+
     A v;
     v.a = new int[](1);
     v.a[0] = 2;
-    A w = cloneObj(v);
-    assert(w.a[0] == 2, "Not clone");
+    v.b = new int(2);
+
+    A w = v.clone;
+    assert(w.a[0] == 2 && *(w.b) == 2 && w.c is null, "Not clone");
     w.a[0] = 3;
-    assert(v.a[0] == 2, "Shared 1");
-    assert(w.a[0] == 3, "Shared 2");
+    *(w.b) = 4;
+    w.c = new B();
+    B n = w.c.clone;
+    n.c = 'C';
+    assert(v.a[0] == 2 && *(v.b) == 2, "Shared 1");
+    assert(w.a[0] == 3 && *(w.b) == 4 && w.c.c == 'A', "Shared 2");
 }
