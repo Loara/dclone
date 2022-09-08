@@ -51,6 +51,9 @@ By default clonation of a struct is done by cloning each of its fields, so it do
 In these cases you should provide a custom algorithm to perform a clonation of your object of type `T`, you can use one of the following approaches:
 
  - declaring a function with signature `clone(in T) pure @safe` at module scope;
- - declaring a method `clone() const pure @safe` inside `T`.
+ - declaring a method `clone() const pure @safe scope` inside `T`. The `scope` attribute means `this` doesn't escape from `clone`.
 
 Usually return type of these functions should be convertible to `T` (without any `const` or `immutable` qualifiers) but this is not normally enforced.
+
+## cloneNull
+When you need to clone a class usually you can simply call `obj.clone`. However this won't work if `obj` is `null`, for this reason when you need to clone an object that can be `null` you should instead use `cloneNull(obj)`: it returns `obj.clone` when `obj` is not `null` and `null` otherwise.
