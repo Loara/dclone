@@ -1,10 +1,10 @@
-module clone;
+module dclone;
 
 import std.traits;
 import std.typecons;
 import std.algorithm : move;
 
-alias MutableType(T) = typeof(lvalueOf!T.clone());
+alias CloneType(T) = typeof(lvalueOf!T.clone());
 
 Unconst!T clone(T)(in T el) pure @safe nothrow @nogc if(isBasicType!T){
     return el;
@@ -13,7 +13,7 @@ Unconst!T clone(T)(in T el) pure @safe nothrow @nogc if(isBasicType!T){
 /*
     Equivalent to clone unless T is a class and el is null. In that case returns null
 */
-MutableType!T cloneNull(T)(in T el) pure @safe{
+auto cloneNull(T)(in T el) pure @safe{
     static if(is(T == class)){
         if(el is null)
             return null;
@@ -23,7 +23,12 @@ MutableType!T cloneNull(T)(in T el) pure @safe{
     else return el.clone();
 }
 
-Unconst!T clone(T)(in T el) pure @safe if( is(T == struct) && __traits(isPOD, T) ){
+/*
+  a struct with this UDA will have a trivial cloning method that simply clone each member.
+*/
+struct autoclone{}
+
+Unconst!T clone(T)(in T el) pure @safe if( is(T == struct) && hasUDA!(T, autoclone) ){
     Unconst!T ret;
     static foreach(mem; FieldNameTuple!T){
         mixin("ret." ~ mem ~ "=cloneNull(el." ~ mem ~ ");");
@@ -31,25 +36,28 @@ Unconst!T clone(T)(in T el) pure @safe if( is(T == struct) && __traits(isPOD, T)
     return ret;
 }
 
-MutableType!T[] clone(T)(scope T[] el) pure @safe{
-    auto ret = new MutableType!T[](el.length);
+string clone(scope string el) pure @safe{
+    return el.idup;
+}
+auto clone(T)(scope T[] el) pure @safe{
+    auto ret = new CloneType!T[](el.length);
     foreach(i, ref v; el){
         ret[i] = cloneNull(v);
     }
     return ret;
 }
-MutableType!T[N] clone(T, size_t N)(in T[N] el) pure @safe{
-    MutableType!T[N] ret;
+auto clone(T, size_t N)(in T[N] el) pure @safe{
+    CloneType!T[N] ret;
     foreach(i, ref v; el){
         ret[i] = cloneNull(v);
     }
     return ret;
 }
 
-MutableType!T *clone(T)(scope T * el) pure @safe{
+CloneType!T *clone(T)(scope T * el) pure @safe{
     if(el is null)
         return null;
-    auto ret = new MutableType!T[](1);
+    auto ret = new CloneType!T[](1);
     ret[0] = (*el).clone();
     return &ret[0];
 }
@@ -58,11 +66,11 @@ MutableType!T *clone(T)(scope T * el) pure @safe{
     Creates an immutable clone
 */
 
-immutable(MutableType!T) clone_immutable(T)(in T el) pure @trusted{
-    return cast(immutable(MutableType!T)) cloneNull(el);
+auto clone_immutable(T)(in T el) pure @trusted{
+    return cast(immutable(CloneType!T)) cloneNull(el);
 }
 
-void cloneInPlace(T)(ref T el) pure if(MutableType!T == T){
+void cloneInPlace(T)(ref T el) pure if(CloneType!T == T){
     T cl = cloneNull(el);
     move(cl, el);
 }
@@ -73,23 +81,23 @@ void cloneInPlace(T)(ref T el) pure if(MutableType!T == T){
 
 struct CloneSend(T) if(hasUnsharedAliasing!T){
     private:
-        alias Tval = Nullable!(shared MutableType!T);
+        alias Tval = Nullable!(shared CloneType!T);
         Tval val;//should be @system
     public:
         @disable this();
         @disable this(ref CloneSend!T);
         this(in T el) pure @trusted{
-            val = Tval(cast(shared MutableType!T) cloneNull(el));
+            val = Tval(cast(shared CloneType!T) cloneNull(el));
         }
         MutableType!T getValue() pure @trusted scope in(!val.isNull, "Value already taken"){
-            auto ret = cast(MutableType!T) val.get;
+            auto ret = cast(CloneType!T) val.get;
             val.nullify();
             return ret;
         }
 }
 
-Nullable!(MutableType!T) clone(T)(in Nullable!T n) pure @safe nothrow @nogc{
-    alias Tret = Nullable!(MutableType!T);
+Nullable!(CloneType!T) clone(T)(in Nullable!T n) pure @safe{
+    alias Tret = Nullable!(CloneType!T);
     if(n.isNull){
         return Tret();
     }
@@ -113,7 +121,7 @@ unittest{
         }
     }
 
-    struct A{
+    @autoclone struct A{
         int[] a = null;
         int *b = null;
         B c = null;
